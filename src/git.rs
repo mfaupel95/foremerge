@@ -794,6 +794,7 @@ impl ScratchDir {
         ));
         // The files compared here are repository source, so the directory is
         // private to the owner on a shared machine.
+        #[cfg_attr(not(unix), allow(unused_mut))]
         let mut builder = std::fs::DirBuilder::new();
         #[cfg(unix)]
         {
@@ -1610,7 +1611,7 @@ mod containment_tests {
         let base_tree = tree_of(root, &base_entries);
         let base = git_output(root, &["commit-tree", &base_tree, "-m", "base"]).unwrap();
 
-        let mut candidate_entries = vec![
+        let candidate_entries = vec![
             // An executable-bit change with the same content.
             ("100755", base_entries[0].1.clone(), b"tool.sh".to_vec()),
             ("100644", blob(b"\0new\xff"), b"image.bin".to_vec()),
