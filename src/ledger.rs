@@ -773,6 +773,7 @@ fn reserve_backup_dir(database: &Path, schema: Option<i64>, suffix: &str) -> Res
     // earlier version chmodded whatever it found, including through a symlink
     // to a directory elsewhere. The ledger's own directory is never touched:
     // for the default ledger path its parent is the repository's `.git`.
+    #[cfg(unix)]
     let existed = root.symlink_metadata().is_ok();
     std::fs::create_dir_all(&root).with_context(|| format!("create {}", root.display()))?;
     #[cfg(unix)]

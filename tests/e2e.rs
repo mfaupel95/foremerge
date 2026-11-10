@@ -105,6 +105,38 @@ fn the_short_name_is_the_same_program_and_calls_itself_by_the_short_name() {
     );
 }
 
+/// The canonical form of `path` without Windows' `\\?\` verbatim prefix, which
+/// Git cannot read as a repository path.
+fn plain_canonical(path: &Path) -> PathBuf {
+    let canonical = path.canonicalize().expect("canonicalize path");
+    match canonical.to_string_lossy().strip_prefix(r"\\?\") {
+        Some(rest) if !rest.starts_with("UNC") => PathBuf::from(rest),
+        _ => canonical,
+    }
+}
+
+/// A temporary directory with no `.git` marker at or above it. A machine whose
+/// home directory holds a stray `.git` folder puts every temporary path inside
+/// a marked tree, so the outside-a-repository cases cannot run there; they say
+/// so and return `None` rather than fail on the environment.
+fn outside_repository() -> Option<TempDir> {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let marker = temp
+        .path()
+        .ancestors()
+        .find(|dir| fs::symlink_metadata(dir.join(".git")).is_ok());
+    match marker {
+        Some(dir) => {
+            eprintln!(
+                "skipped: {} has a .git marker above it, so it is not outside a repository",
+                dir.display()
+            );
+            None
+        }
+        None => Some(temp),
+    }
+}
+
 fn git<I, S>(cwd: &Path, args: I) -> String
 where
     I: IntoIterator<Item = S>,
@@ -1538,7 +1570,7 @@ fn setup_installs_native_claude_and_cursor_integrations_and_named_checks() {
                     .as_str()
                     .unwrap()
             )
-            .file_name(),
+            .file_stem(),
             Some(OsStr::new("foremerge"))
         );
         assert_eq!(
@@ -4673,7 +4705,9 @@ fn mcp_outside_a_repository_serves_the_reason_without_creating_a_stray_store() {
     // because registry checkers and clients launched from a home directory
     // spawn it outside any repository, and a server that exits reaches them
     // as nothing but a closed connection.
-    let temp = tempfile::tempdir().expect("temp dir");
+    let Some(temp) = outside_repository() else {
+        return;
+    };
     let outside = temp.path().canonicalize().expect("canonicalize temp dir");
     let (responses, stderr) = mcp_session_without_a_store(&outside, None);
     let instructions = assert_unavailable_with(&responses, &stderr, "NOT_A_REPOSITORY");
@@ -5564,7 +5598,9 @@ fn both_eras_get_the_reason_in_a_repository_that_has_not_run_init() {
 
 #[test]
 fn both_eras_get_the_reason_outside_any_repository() {
-    let temp = tempfile::tempdir().expect("temp dir");
+    let Some(temp) = outside_repository() else {
+        return;
+    };
     let outside = temp.path().canonicalize().expect("canonicalize temp dir");
     assert_unavailable_in_both_eras(&outside, "NOT_A_REPOSITORY");
     assert!(
@@ -6525,14 +6561,7 @@ fn changeset_provenance_records_shallow_boundary_not_root_commit() {
     // misrecording a root commit.
     let clone_parent = tempfile::tempdir().expect("create clone directory");
     let clone_root = clone_parent.path().join("shallow");
-    let upstream_url = format!(
-        "file://{}",
-        upstream
-            .root
-            .canonicalize()
-            .expect("canonicalize upstream")
-            .display()
-    );
+    let upstream_url = format!("file://{}", plain_canonical(&upstream.root).display());
     git(
         clone_parent.path(),
         [
