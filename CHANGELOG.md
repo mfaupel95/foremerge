@@ -9,6 +9,13 @@ changes when they are called out here with a migration note.
 
 ## [Unreleased]
 
+### Fixed
+
+- A `.git` directory without a `HEAD`, such as an empty one left in a home
+  directory, no longer makes the directories below it look like a repository.
+  Commands there now report `NOT_A_REPOSITORY` instead of
+  `REPOSITORY_UNREADABLE`.
+
 ## [0.6.0] - 2026-10-24
 
 This is a minor version because Foremerge no longer migrates a ledger as a side
