@@ -55,7 +55,8 @@ pub fn available() -> bool {
 }
 
 /// Whether anything at or above `start` could make it a repository: a `.git`
-/// directory or gitfile, or `GIT_DIR` in the environment.
+/// gitfile, a `.git` directory holding a `HEAD`, or `GIT_DIR` in the
+/// environment.
 ///
 /// This tells "not a repository" apart from "a repository Git refused to
 /// open" (dubious ownership, a broken gitfile, unreadable metadata) without
@@ -63,11 +64,20 @@ pub fn available() -> bool {
 /// means no answer exists; a `true` alongside a failed [`discover`] means Git
 /// had one and refused it, and its own error says why.
 pub fn repository_marker_exists(start: impl AsRef<Path>) -> bool {
-    std::env::var_os("GIT_DIR").is_some()
-        || start
-            .as_ref()
-            .ancestors()
-            .any(|directory| std::fs::symlink_metadata(directory.join(".git")).is_ok())
+    std::env::var_os("GIT_DIR").is_some() || start.as_ref().ancestors().any(is_repository_marker)
+}
+
+/// A `.git` entry Git itself would read as a repository. Git only treats a
+/// `.git` directory as one when it holds a `HEAD`, so an empty `.git` folder
+/// left in a parent directory, such as a home directory, does not make the
+/// directories below it part of a repository.
+fn is_repository_marker(directory: &Path) -> bool {
+    let marker = directory.join(".git");
+    match std::fs::symlink_metadata(&marker) {
+        Ok(metadata) if metadata.is_dir() => std::fs::symlink_metadata(marker.join("HEAD")).is_ok(),
+        Ok(_) => true,
+        Err(_) => false,
+    }
 }
 
 pub fn discover(start: impl AsRef<Path>) -> Result<RepoContext> {
@@ -1152,6 +1162,22 @@ mod tests {
             .status()
             .unwrap();
         assert!(status.success());
+    }
+
+    #[test]
+    fn empty_git_folder_above_is_not_a_repository_marker() {
+        let temp = TempDir::new().unwrap();
+        fs::create_dir(temp.path().join(".git")).unwrap();
+        let inside = temp.path().join("work");
+        fs::create_dir(&inside).unwrap();
+        assert!(!repository_marker_exists(&inside));
+    }
+
+    #[test]
+    fn initialized_repository_is_a_marker() {
+        let temp = TempDir::new().unwrap();
+        git(temp.path(), &["init", "-q"]);
+        assert!(repository_marker_exists(temp.path()));
     }
 
     #[test]
